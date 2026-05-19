@@ -4,7 +4,7 @@
 # about: Create journals in discourse
 # version: 0.3.1
 # authors: Angus McLeod
-# url: https://github.com/paviliondev/discourse-journal
+# url: https://github.com/Zvetkov/discourse-journal
 
 enabled_site_setting :journal_enabled
 
