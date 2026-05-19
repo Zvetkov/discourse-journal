@@ -199,3 +199,13 @@ html.rtl {
     padding-right: 110px;
   }
 }
+
+// Collapsed comments in the Glimmer post stream.
+// The old widget system excluded hidden comments from the rendered postArray
+// entirely. In the Glimmer system, post-class transformer adds this class
+// instead, and CSS handles the hide. The class is removed when the user
+// expands the thread via ShowCommentsLink.
+.topic-post.comment.journal-comment-hidden {
+  display: none;
+}
+
