@@ -1,64 +1,99 @@
 import Component from "@glimmer/component";
-import { service } from "@ember/service";
-import { action } from "@ember/object";
-import { alias } from "@ember/object/computed";
 import { on } from "@ember/modifier";
+import { action } from "@ember/object";
+import { service } from "@ember/service";
+import { removeValueFromArray } from "discourse/lib/array-tools";
 import { withPluginApi } from "discourse/lib/plugin-api";
+import dConcatClass from "discourse/ui-kit/helpers/d-concat-class";
 import { i18n } from "discourse-i18n";
 import JournalCommentButton from "../components/journal-comment-button";
 
-const PLUGIN_ID = "discourse-journal";
+// Index in `posts` where a new comment belongs - the position of the entry that
+// follows its comment run. -1 means "append": the run reaches the end of the
+// loaded stream, or the parent isn't loaded.
+function commentInsertIndex(posts, post) {
+  const parentIndex = posts.findIndex(
+    (p) => p.post_number === post.reply_to_post_number
+  );
 
-// ---------------------------------------------------------------------------
-// ShowCommentsLink
-//
-// Rendered after each post-article via renderAfterWrapperOutlet("post-article").
-// Replaces decorateWidget("post:after", ...) + the widget link attachment.
-//
-// The migration guide confirms that components registered with
-// renderAfterWrapperOutlet receive @post as an arg and may implement a static
-// shouldRender(args) method. We use shouldRender to skip rendering entirely on
-// posts that don't need the toggle, avoiding unnecessary service lookups.
-// ---------------------------------------------------------------------------
-
-class ShowCommentsLink extends Component {
-  @service journal;
-
-  static shouldRender(args) {
-    // Only bother instantiating for journal comment posts that are visible
-    // and have been marked as the toggle anchor by the service.
-    return args.post?.journal && args.post?.comment;
+  if (parentIndex === -1) {
+    return -1;
   }
 
-  get visibility() {
-    return this.journal.visibilityFor(this.args.post.id);
+  for (let i = parentIndex + 1; i < posts.length; i++) {
+    if (!posts[i].reply_to_post_number) {
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+// Mirror a comment's placement in `posts` into the id stream, so scroll position
+// and post navigation agree with what is rendered.
+//
+// A module function, not a #private method: classPrepend swaps the prototype
+// chain, so instances are never constructed by the subclass and private members
+// would fail their brand check.
+function repositionCommentInStream(postStream, post) {
+  const { stream, posts } = postStream;
+  const postId = post.id;
+
+  if (!stream.includes(postId)) {
+    return;
+  }
+
+  // `post` is already in `posts`, but carries a reply_to_post_number, so the
+  // scan skips it.
+  const index = commentInsertIndex(posts, post);
+  const anchorId = index > 0 ? posts[index]?.id : undefined;
+
+  if (anchorId === undefined || !stream.includes(anchorId)) {
+    return;
+  }
+
+  removeValueFromArray(stream, postId);
+  stream.splice(stream.indexOf(anchorId), 0, postId);
+}
+
+class ShowCommentsLink extends Component {
+  // The first post is an entry, and with journal_comments_default at 0 the
+  // toggle anchors on entries - so it must not be excluded here.
+  static shouldRender(args) {
+    return !!args.post?.journal;
+  }
+
+  @service journal;
+
+  get post() {
+    return this.args.post;
   }
 
   get shouldShow() {
-    const { attachToggle, hiddenCount } = this.visibility;
-    return attachToggle && hiddenCount > 0;
+    return this.journal.isToggleAnchor(this.post);
   }
 
   get label() {
-    const type =
-      Number(this.journal.siteSettings.journal_comments_default) > 0
-        ? "more"
-        : "all";
+    const type = this.journal.defaultCount > 0 ? "more" : "all";
+
     return i18n(`topic.comment.show_comments.${type}`, {
-      count: this.visibility.hiddenCount,
+      count: this.journal.hiddenCount(this.post),
     });
   }
 
   @action
   showComments() {
-    this.journal.showComments(this.args.post.entry_post_id);
+    this.journal.expand(this.post.entry_post_id);
   }
 
   <template>
     {{#if this.shouldShow}}
       <button
         type="button"
-        class="show-comments"
+        class={{dConcatClass
+          "show-comments"
+          (if this.post.entry "--entry-anchored")
+        }}
         {{on "click" this.showComments}}
       >
         {{this.label}}
@@ -69,6 +104,7 @@ class ShowCommentsLink extends Component {
 
 export default {
   name: "journal-post",
+
   initialize(container) {
     const siteSettings = container.lookup("service:site-settings");
 
@@ -76,39 +112,28 @@ export default {
       return;
     }
 
-    const journalService = container.lookup("service:journal");
-    const appEvents = container.lookup("service:app-events");
+    const journal = container.lookup("service:journal");
 
-    // -------------------------------------------------------------------------
-    // composer:opened
-    //
-    // Pre-expands the comment thread for the entry being replied to, mirroring
-    // the old scrolling-post-stream didInsertElement listener.
-    // -------------------------------------------------------------------------
+    // Expand the target entry when the composer opens, so the reply being
+    // written lands somewhere visible. This has to cover replies to comments
+    // too, not just to entries - otherwise a comment posted into a collapsed run
+    // is hidden the moment it commits.
+    container.lookup("service:app-events").on("composer:opened", () => {
+      const post = container.lookup("service:composer").model?.post;
 
-    appEvents.on("composer:opened", () => {
-      const composer = container.lookup("service:composer");
-      const post = composer.get("model.post");
-
-      if (post?.entry) {
-        journalService.showEntry(post.id);
+      if (post?.journal) {
+        journal.expand(post.entry_post_id);
       }
     });
 
-    // -------------------------------------------------------------------------
-    // Glimmer post-stream API
-    // -------------------------------------------------------------------------
-
-    withPluginApi("1.34.0", (api) => {
-      // -- post-menu-buttons (unchanged — already correct) -------------------
-
+    withPluginApi((api) => {
       api.registerValueTransformer(
         "post-menu-buttons",
         ({
           value: dag,
           context: { post, buttonKeys, lastHiddenButtonKey },
         }) => {
-          if (post.topic.details.can_create_post && post.journal) {
+          if (post.journal && post.topic?.details?.can_create_post) {
             dag.add("comment", JournalCommentButton, {
               after: lastHiddenButtonKey,
             });
@@ -117,18 +142,8 @@ export default {
         }
       );
 
-      // -- post-class --------------------------------------------------------
-      //
-      // Replaces addPostClassesCallback.
-      //
-      // Adds "entry" or "comment"/"comment show" classes. The "show" class is
-      // preserved for SCSS compatibility even though the original stylesheet
-      // did not gate visibility on it — third-party CSS may depend on it.
-      //
-      // Comment visibility (hiding collapsed comments) is handled here via the
-      // "journal-comment-hidden" class, which maps to display:none in journal.scss.
-      // This replaces the old postArray filtering in reopenWidget("post-stream").
-
+      // Collapsed comments get `comment` without `show`; the stylesheet hides
+      // those.
       api.registerValueTransformer(
         "post-class",
         ({ value, context: { post } }) => {
@@ -137,28 +152,14 @@ export default {
           }
 
           if (post.comment) {
-            const { visible } = journalService.visibilityFor(post.id);
-            const classes = [...value, "comment"];
-
-            if (visible) {
-              classes.push("show");
-            } else {
-              classes.push("journal-comment-hidden");
-            }
-
-            return classes;
+            return journal.isCommentVisible(post)
+              ? [...value, "comment", "show"]
+              : [...value, "comment"];
           }
 
           return [...value, "entry"];
         }
       );
-
-      // -- post-avatar-size --------------------------------------------------
-      //
-      // Replaces reopenWidget("post-avatar", { html(attrs) { ... } }).
-      // Confirmed in the migration thread (post #9): the transformer name is
-      // "post-avatar-size" and it is registered in the avatar component itself,
-      // not in plugin-api.gjs.
 
       api.registerValueTransformer(
         "post-avatar-size",
@@ -166,237 +167,108 @@ export default {
           if (!post?.journal) {
             return value;
           }
+
           return post.comment ? "small" : "large";
         }
       );
 
-      // -- post-meta-data-infos ----------------------------------------------
-      //
-      // Replaces the two behaviours from reopenWidget("post"):
-      //   1. entry posts: replyToUsername was nulled → remove the reply-to tab
-      //   2. comment posts: replyCount was nulled → remove the reply-to tab
-      //      (comments don't link back to their parent in journal context)
-      //
-      // Also replaces reopenWidget("reply-to-tab", { click() { return false } })
-      // — removing the tab entirely is cleaner than suppressing its click.
-      //
-      // The transformer receives the DAG as `value` and metaDataInfoKeys as
-      // context. We call dag.delete(metaDataInfoKeys.REPLY_TO_TAB) to remove
-      // the reply-to tab component from the metadata row for journal posts.
-
+      // A journal post's parent is implied by its position, so the reply-to tab
+      // is noise.
       api.registerValueTransformer(
         "post-meta-data-infos",
         ({ value: dag, context: { post, metaDataInfoKeys } }) => {
-          if (!post.journal || post.firstPost) {
-            return;
+          if (post.journal && !post.firstPost) {
+            dag.delete(metaDataInfoKeys.REPLY_TO_TAB);
           }
-
-          // Both entries (suppress replyToUsername) and comments (suppress
-          // replyCount) lose the reply-to tab in journal context.
-          dag.delete(metaDataInfoKeys.REPLY_TO_TAB);
         }
       );
 
-      // -- post-article outlet: show-comments link ---------------------------
-      //
-      // Replaces decorateWidget("post:after", ...) + widget link.
-      // "post-article" is confirmed as a valid wrapper outlet name in the
-      // migration guide (examples 3 & 4).
-
       api.renderAfterWrapperOutlet("post-article", ShowCommentsLink);
-    });
 
-    // -------------------------------------------------------------------------
-    // Legacy-compatible API (no Glimmer-specific equivalent required)
-    // -------------------------------------------------------------------------
-
-    withPluginApi("0.8.12", (api) => {
-      // -- addTrackedPostProperties ------------------------------------------
+      // Keep newly created comments next to their entry rather than at the end
+      // of the topic. The server reorders sort_order on post_created, so this
+      // only covers the window before the stream reloads.
       //
-      // Replaces includePostAttributes. showComment, attachCommentToggle, and
-      // hiddenComments are intentionally omitted — they are now derived
-      // reactively from JournalService.visibilityMap rather than being mutated
-      // onto post objects directly.
-
-      api.addTrackedPostProperties(
-        "journal",
-        "reply_to_post_number",
-        "comment",
-        "entry",
-        "entry_post_id",
-        "entry_post_ids"
-      );
-
-      // -- model:post-stream -------------------------------------------------
-      //
-      // No migration needed. modifyClass on models is unaffected by the Glimmer
-      // post stream change. The posts array manipulated here (stagePost,
-      // commitPost, appendPost, prependPost) is the same tracked array that
-      // JournalService.visibilityMap reads from, so insertions automatically
-      // invalidate the @cached getter in the service.
-
-      api.modifyClass("model:post-stream", {
-        pluginId: PLUGIN_ID,
-
-        journal: alias("topic.journal"),
-
-        getCommentIndex(post) {
-          const posts = this.get("posts");
-          let passed = false;
-          let commentIndex = null;
-
-          posts.some((p, i) => {
-            if (passed && !p.reply_to_post_number) {
-              commentIndex = i;
-              return true;
+      // Function form of modifyClass: real `super`, and not subject to the
+      // pluginId de-duplication that silently drops a second object-form
+      // modification of the same class.
+      api.modifyClass(
+        "model:post-stream",
+        (Superclass) =>
+          class extends Superclass {
+            get journal() {
+              return this.topic?.journal;
             }
-            if (
-              p.post_number === post.reply_to_post_number &&
-              i < posts.length - 1
-            ) {
-              passed = true;
+
+            stagePost(post, user) {
+              const result = super.stagePost(post, user);
+
+              if (this.journal && post.reply_to_post_number) {
+                repositionCommentInStream(this, post);
+              }
+
+              return result;
             }
-          });
 
-          return commentIndex;
-        },
+            commitPost(post) {
+              const result = super.commitPost(post);
 
-        insertCommentInStream(post) {
-          const stream = this.stream;
-          const postId = post.get("id");
-          const commentIndex = this.getCommentIndex(post) - 1;
+              if (this.journal && post.reply_to_post_number) {
+                repositionCommentInStream(this, post);
+              }
 
-          if (
-            stream.indexOf(postId) > -1 &&
-            commentIndex &&
-            commentIndex > 0
-          ) {
-            stream.removeObject(postId);
-            stream.insertAt(commentIndex, postId);
-          }
-        },
-
-        stagePost(post) {
-          let result = this._super(...arguments);
-          if (!this.journal) {
-            return result;
-          }
-
-          if (post.get("reply_to_post_number")) {
-            this.insertCommentInStream(post);
-          }
-
-          return result;
-        },
-
-        commitPost(post) {
-          let result = this._super(...arguments);
-          if (!this.journal) {
-            return result;
-          }
-
-          if (post.get("reply_to_post_number")) {
-            this.insertCommentInStream(post);
-          }
-
-          return result;
-        },
-
-        prependPost(post) {
-          if (!this.journal) {
-            return this._super(...arguments);
-          }
-
-          const stored = this.storePost(post);
-          if (stored) {
-            const posts = this.get("posts");
-
-            if (post.post_number === 2 && posts[0].post_number === 1) {
-              posts.insertAt(1, stored);
-            } else {
-              posts.unshiftObject(stored);
+              return result;
             }
-          }
 
-          return post;
-        },
+            prependPost(post) {
+              // The first post is always the first entry, so anything prepended
+              // above it belongs in second place.
+              if (
+                !this.journal ||
+                post.post_number !== 2 ||
+                this.posts[0]?.post_number !== 1
+              ) {
+                return super.prependPost(post);
+              }
 
-        appendPost(post) {
-          if (!this.journal) {
-            return this._super(...arguments);
-          }
+              this._initUserModels(post);
+              const stored = this.storePost(post);
 
-          const stored = this.storePost(post);
-          if (stored) {
-            const posts = this.get("posts");
+              if (stored && !this.posts.includes(stored)) {
+                this.posts.splice(1, 0, stored);
+              }
 
-            if (!posts.includes(stored)) {
-              let insertPost = () => posts.pushObject(stored);
+              return post;
+            }
 
-              if (post.get("reply_to_post_number")) {
-                const commentIndex = this.getCommentIndex(post);
+            appendPost(post) {
+              if (!this.journal || !post.reply_to_post_number) {
+                return super.appendPost(post);
+              }
 
-                if (commentIndex && commentIndex > 0) {
-                  insertPost = () => posts.insertAt(commentIndex, stored);
+              this._initUserModels(post);
+              const stored = this.storePost(post);
+
+              if (stored) {
+                if (!this.posts.includes(stored)) {
+                  const index = commentInsertIndex(this.posts, post);
+
+                  if (index > 0) {
+                    this.posts.splice(index, 0, stored);
+                  } else {
+                    this.posts.push(stored);
+                  }
+                }
+
+                if (stored.id !== -1) {
+                  this.lastAppended = stored;
                 }
               }
 
-              if (!this.get("loadingBelow")) {
-                this.get("postsWithPlaceholders").appendPost(insertPost);
-              } else {
-                insertPost();
-              }
-            }
-
-            if (stored.get("id") !== -1) {
-              this.set("lastAppended", stored);
+              return post;
             }
           }
-
-          return post;
-        },
-      });
-
-      // -- route:topic -------------------------------------------------------
-      //
-      // Wires JournalService.postStream on topic entry and clears it on exit.
-      // This is what makes the @cached visibilityMap reactive — it reads
-      // postStream.posts, which is a tracked Ember array, so any insertions
-      // from the model extension above automatically invalidate the map.
-      //
-      // We extend route:topic rather than modifying the existing journal-topic.js
-      // extension to keep the postStream wiring co-located with the service.
-      // The two modifyClass calls with the same pluginId are safe because
-      // Discourse deduplicates by pluginId + resolverName key.
-
-      api.modifyClass("route:topic", {
-        pluginId: PLUGIN_ID,
-
-        actions: {
-          didTransition() {
-            const result = this._super(...arguments);
-            const controller = this.controllerFor("topic");
-            const topic = controller.get("model");
-
-            if (topic?.journal) {
-              journalService.postStream = topic.postStream;
-            }
-
-            return result;
-          },
-
-          willTransition() {
-            const controller = this.controllerFor("topic");
-            const topic = controller.get("model");
-
-            if (topic?.journal) {
-              journalService.reset();
-            }
-
-            return this._super(...arguments);
-          },
-        },
-      });
+      );
     });
   },
 };

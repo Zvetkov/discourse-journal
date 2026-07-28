@@ -11,7 +11,10 @@ module DiscourseJournal
     end
 
     def can_create_entry_on_topic?(topic)
-      topic&.journal? && (user_in_author_groups(topic) || user_created_topic(topic))
+      return false if !topic&.journal?
+      return false if !authenticated?
+
+      user_in_author_groups(topic) || user_created_topic(topic)
     end
 
     def post_is_journal_entry?(post)
@@ -19,7 +22,7 @@ module DiscourseJournal
     end
 
     def user_created_topic(topic)
-      @user.id === topic&.user_id
+      @user.present? && @user.id == topic&.user_id
     end
 
     def can_wiki?(post)
@@ -27,8 +30,11 @@ module DiscourseJournal
     end
 
     def user_in_author_groups(topic)
-      topic&.category&.journal_author_groups.include?('everyone') ||
-      ((topic&.category&.journal_author_groups & @user.groups.map(&:name)).size > 0)
+      author_groups = topic&.category&.journal_author_groups || []
+      return false if author_groups.blank?
+      return true if author_groups.include?("everyone")
+
+      @user.present? && (author_groups & @user.groups.pluck(:name)).any?
     end
   end
 end

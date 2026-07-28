@@ -51,8 +51,8 @@ en:
         title: 'Comment'
         help: 'begin composing a comment on this entry'
         show_comments:
-          all: 'show {{count}} comments'
-          more: 'show {{count}} more comments'
+          all: 'show %{count} comments'
+          more: 'show %{count} more comments'
       comment_reply:
         title: 'Reply'
         help: 'reply to a comment'

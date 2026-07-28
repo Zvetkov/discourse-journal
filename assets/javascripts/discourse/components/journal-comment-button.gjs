@@ -1,28 +1,41 @@
 import Component from "@glimmer/component";
-import DButton from "discourse/components/d-button";
 import { action } from "@ember/object";
+import { service } from "@ember/service";
 import Composer from "discourse/models/composer";
-import { getOwner } from "@ember/owner";
+import DButton from "discourse/ui-kit/d-button";
 
 export default class JournalCommentButton extends Component {
+  // Never collapse into the "show more" menu: this replaces the reply button.
   static hidden() {
     return false;
   }
 
+  @service composer;
+  @service site;
+
+  get post() {
+    return this.args.post;
+  }
+
   get i18nKey() {
-    return this.args.post.reply_to_post_number ? "comment_reply" : "comment";
+    return this.post.reply_to_post_number ? "comment_reply" : "comment";
   }
 
   get icon() {
-    return this.args.post.reply_to_post_number ? "reply" : "comment";
+    return this.post.reply_to_post_number ? "reply" : "comment";
+  }
+
+  // Mirrors core's reply button, and stays overridable via the
+  // post-menu-buttons transformer's buttonLabels helpers.
+  get showLabel() {
+    return (
+      this.args.showLabel ??
+      (this.site.desktopView && !this.post.reply_to_post_number)
+    );
   }
 
   get label() {
-    if (!this.args.post.mobileView && !this.args.post.reply_to_post_number) {
-      return `topic.${this.i18nKey}.title`;
-    } else {
-      return "";
-    }
+    return this.showLabel ? `topic.${this.i18nKey}.title` : undefined;
   }
 
   get title() {
@@ -31,13 +44,14 @@ export default class JournalCommentButton extends Component {
 
   @action
   openCommentCompose() {
-    const opts = {
+    const topic = this.post.topic;
+
+    this.composer.open({
       action: Composer.REPLY,
-      draftKey: this.args.post.topic.get("draft_key"),
-      draftSequence: this.args.post.topic.get("draft_sequence"),
-      post: this.args.post,
-    };
-    getOwner(this).lookup("service:composer").open(opts);
+      draftKey: topic.draft_key,
+      draftSequence: topic.draft_sequence,
+      post: this.post,
+    });
   }
 
   <template>

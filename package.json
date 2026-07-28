@@ -1,12 +1,15 @@
 {
   "name": "discourse-journal",
   "version": "1.0.0",
-  "repository": "git@github.com:paviliondev/discourse-journal.git",
+  "repository": "git@github.com:Zvetkov/discourse-journal.git",
   "author": "Pavilion",
   "license": "GPL V2",
+  "dependencies": {
+    "discourse": "npm:@discourse/types@*"
+  },
   "devDependencies": {
-    "ember-template-lint": "^6.1.0",
-    "eslint-config-discourse": "^3.4.0",
-    "semver": "^7.3.5"
+    "@discourse/lint-configs": "^3.2.0",
+    "eslint": "10.6.0",
+    "prettier": "3.8.1"
   }
 }

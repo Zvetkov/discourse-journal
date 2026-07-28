@@ -2,7 +2,7 @@
 
 # name: discourse-journal
 # about: Create journals in discourse
-# version: 0.3.1
+# version: 0.4.0
 # authors: Angus McLeod
 # url: https://github.com/Zvetkov/discourse-journal
 
@@ -21,13 +21,16 @@ after_initialize do
     ../extensions/guardian.rb
     ../extensions/post_creator.rb
     ../extensions/topic.rb
+    ../extensions/topic_nested.rb
     ../jobs/update_journal_category_sort_order.rb
   ).each do |path|
     load File.expand_path(path, __FILE__)
   end
 
   ::Guardian.prepend DiscourseJournal::GuardianExtension
+  ::PostCreator.prepend DiscourseJournal::PostCreatorExtension
   ::Topic.include DiscourseJournal::TopicExtension
+  ::Topic.prepend DiscourseJournal::TopicNestedExtension if ::Topic.method_defined?(:nested_view?)
   ::CategoryCustomField.include DiscourseJournal::CategoryCustomFieldExtension
 
   register_category_custom_field_type("journal", :boolean)
@@ -41,15 +44,18 @@ after_initialize do
     end
   }
 
-  add_to_class(:post, :journal?) { topic.journal? }
+  # topic can be nil outside a topic view, e.g. a post whose topic was deleted.
+  add_to_class(:post, :journal?) { !!topic&.journal? }
   add_to_class(:post, :entry?) { journal? && topic.journal_post_map[id]&.second.blank? }
   add_to_class(:post, :comment?) { journal? && topic.journal_post_map[id]&.second.present? }
   add_to_class(:post, :entry_post_id) { entry? ? id : topic.journal_post_map[id]&.second }
+  add_to_class(:post, :comment_position) { journal? ? topic.journal_post_map[id]&.third : nil }
+  add_to_class(:post, :entry_comment_count) { journal? ? topic.journal_post_map[id]&.fourth : nil }
 
+  # CategoryList reads Site.preloaded_category_custom_fields directly now.
   %w(journal journal_author_groups).each do |field|
     Site.preloaded_category_custom_fields << field if Site.respond_to? :preloaded_category_custom_fields
-    CategoryList.preloaded_category_custom_fields << field if CategoryList.respond_to? :preloaded_category_custom_fields
-  end 
+  end
 
   add_to_serializer(:basic_category, :journal) { object.journal? }
   add_to_serializer(
@@ -74,12 +80,25 @@ after_initialize do
     :entry_post_id,
     include_condition: -> { SiteSetting.journal_enabled && object.journal? }
   ) { object.entry_post_id }
+  add_to_serializer(
+    :post,
+    :comment_position,
+    include_condition: -> { SiteSetting.journal_enabled && object.journal? }
+  ) { object.comment_position }
+  add_to_serializer(
+    :post,
+    :entry_comment_count,
+    include_condition: -> { SiteSetting.journal_enabled && object.journal? }
+  ) { object.entry_comment_count }
 
   add_to_serializer(:topic_view, :journal) { object.topic.journal? }
   add_to_serializer(
     :topic_view,
     :journal_author,
-    include_condition: -> { SiteSetting.journal_enabled && object.topic.journal? }
+    include_condition: -> {
+      SiteSetting.journal_enabled && object.topic.journal? &&
+        object.topic.journal_author.present?
+    }
   ) { BasicUserSerializer.new(object.topic.journal_author, scope: scope, root: false) }
   add_to_serializer(
     :topic_view,
@@ -100,7 +119,7 @@ after_initialize do
     :topic_view,
     :last_entry_post_number,
     include_condition: -> { SiteSetting.journal_enabled && object.topic.journal? }
-  ) { object.topic.entries.last.post_number }
+  ) { object.topic.entries.last&.post_number }
   add_to_serializer(
     :topic_view,
     :can_create_entry,

@@ -8,63 +8,16 @@
     display: none;
   }
 
-  .topic-timeline .timeline-entries {
-    position: absolute;
-    top: 0;
-    height: inherit;
-    left: -40px;
-
-    .entries-title {
-      position: absolute;
-      top: -30px;
-      left: -40px;
-      color: var(--primary-med-or-secondary-med);
-
-      span {
-        white-space: nowrap;
-      }
-    }
-
-    .entry-list {
-      height: 100%;
-    }
-  }
-
-  .topic-timeline .entry-marker {
-    position: absolute;
-    width: 15px;
-    cursor: pointer;
-    box-sizing: border-box;
-    border: 1px solid var(--primary-medium);
-
-    &.active,
-    &:hover {
-      border: 1px solid var(--tertiary-high);
-      z-index: 1;
-    }
-
-    &.active {
-      background-color: var(--tertiary-high);
-    }
-
-    span {
-      position: absolute;
-      top: -10px;
-      left: -25px;
-    }
+  // Hides core's reply button only. The plugin's Entry button is rendered into
+  // the after-topic-footer-main-buttons outlet, so it is nested in a <span>
+  // rather than being a direct child.
+  .topic-footer-main-buttons > button.create {
+    display: none;
   }
 
   .timeline-container.timeline-fullscreen .topic-timeline {
     .post-excerpt {
       width: 600px;
-    }
-
-    .timeline-entries {
-      left: -60px;
-
-      .entries-title {
-        display: none;
-      }
     }
   }
 
@@ -155,10 +108,14 @@ div.topic-post {
 .show-comments {
   margin-bottom: 10px;
   display: inline-block;
-}
 
-.entry .show-comments {
-  padding-left: 105px;
+  // Anchored to an entry rather than a comment (journal_comments_default = 0),
+  // so it needs the indent comments get from their own padding. Keyed off the
+  // button rather than an `.entry` ancestor, since the topic's first post
+  // deliberately doesn't carry the entry class.
+  &.--entry-anchored {
+    padding-left: 105px;
+  }
 }
 
 .journal-topic-tip {
@@ -199,13 +156,3 @@ html.rtl {
     padding-right: 110px;
   }
 }
-
-// Collapsed comments in the Glimmer post stream.
-// The old widget system excluded hidden comments from the rendered postArray
-// entirely. In the Glimmer system, post-class transformer adds this class
-// instead, and CSS handles the hide. The class is removed when the user
-// expands the thread via ShowCommentsLink.
-.topic-post.comment.journal-comment-hidden {
-  display: none;
-}
-

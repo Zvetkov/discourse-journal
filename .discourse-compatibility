@@ -1,0 +1,3 @@
+# Cores older than the Glimmer-post-stream-only releases get the
+# last commit that still supported the widget rendering system.
+< 3.6.0.beta1-dev: ecbd0ff7558b42ba9a899bd06696f23802c91ec1

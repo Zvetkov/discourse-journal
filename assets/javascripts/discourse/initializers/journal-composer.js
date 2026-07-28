@@ -1,169 +1,131 @@
-import { computed } from "@ember/object";
-import { alias } from "@ember/object/computed";
-import discourseComputed from "discourse/lib/decorators";
 import { withPluginApi } from "discourse/lib/plugin-api";
 import { CREATE_TOPIC, EDIT, REPLY } from "discourse/models/composer";
 import { i18n } from "discourse-i18n";
 
-const PLUGIN_ID = "discourse-journal";
+function isJournal(composerModel) {
+  return !!(composerModel?.category?.journal || composerModel?.topic?.journal);
+}
+
+function journalComposerKey(action, composerModel) {
+  const post = composerModel?.post;
+
+  if (action === CREATE_TOPIC) {
+    return "create_journal";
+  }
+
+  if (action === REPLY && post) {
+    return post.comment ? "reply_to_comment" : "create_comment";
+  }
+
+  if (action === EDIT && post) {
+    return post.comment ? "edit_comment" : "edit_entry";
+  }
+
+  return "create_entry";
+}
+
+function journalComposerText(key) {
+  let icon = "reply";
+
+  if (key === "create_comment") {
+    icon = "comment";
+  } else if (key === "create_journal") {
+    icon = "plus";
+  } else if (key === "edit_entry" || key === "edit_comment") {
+    icon = "pencil";
+  }
+
+  return {
+    icon,
+    name: `composer.composer_actions.${key}.name`,
+    description: `composer.composer_actions.${key}.description`,
+  };
+}
+
+function textFor(composerModel) {
+  return journalComposerText(
+    journalComposerKey(composerModel?.action, composerModel)
+  );
+}
 
 export default {
   name: "journal-composer",
+
   initialize(container) {
     const siteSettings = container.lookup("service:site-settings");
+
     if (!siteSettings.journal_enabled) {
       return;
     }
 
-    function getJournalComposerKey(action, composerModel) {
-      let key;
-      let post = composerModel.post;
-
-      if (action === CREATE_TOPIC) {
-        key = "create_journal";
-      } else if (action === REPLY && post) {
-        key = post.comment ? "reply_to_comment" : "create_comment";
-      } else if (action === EDIT && post) {
-        key = post.comment ? "edit_comment" : "edit_entry";
-      } else {
-        key = "create_entry";
-      }
-
-      return key;
-    }
-
-    function getJournalComposerText(type) {
-      let icon = "reply";
-
-      if (type === "create_comment") {
-        icon = "comment";
-      } else if (type === "create_journal") {
-        icon = "plus";
-      } else if (["edit_entry", "edit_comment"].includes(type)) {
-        icon = "pencil-alt";
-      }
-
-      return {
-        icon,
-        name: `composer.composer_actions.${type}.name`,
-        description: `composer.composer_actions.${type}.description`,
-      };
-    }
-
-    withPluginApi("0.8.12", (api) => {
-      api.modifyClass("service:composer", {
-        pluginId: PLUGIN_ID,
-
-        open(opts) {
-          if (opts.topic && opts.topic.journal && opts.quote && !opts.post) {
-            opts.post = opts.topic.postStream.posts[0];
-          }
-          return this._super(opts);
-        },
-
-        @discourseComputed("model.category")
-        isJournal(category) {
-          return category && category.journal;
-        },
-
-        @discourseComputed("model.action", "model.post")
-        journalComposerText(action) {
-          let key = getJournalComposerKey(action, this.model);
-          return getJournalComposerText(key);
-        },
-
-        @discourseComputed(
-          "model.action",
-          "isWhispering",
-          "model.editConflict",
-          "isJournal",
-          "journalComposerText.name"
-        )
-        saveLabel(
-          modelAction,
-          isWhispering,
-          editConflict,
-          isJournal,
-          journalLabel
-        ) {
-          if (isJournal) {
-            return journalLabel;
-          } else {
-            return this._super(...arguments);
+    withPluginApi((api) => {
+      // Note the asymmetry: actionTitle returns a translated string, the other
+      // two return keys.
+      api.customizeComposerText({
+        actionTitle(model) {
+          if (isJournal(model)) {
+            return i18n(textFor(model).name);
           }
         },
 
-        @discourseComputed(
-          "model.action",
-          "isWhispering",
-          "isJournal",
-          "journalComposerText.icon"
-        )
-        saveIcon(modelAction, isWhispering, isJournal, journalIcon) {
-          if (isJournal) {
-            return journalIcon;
-          } else {
-            return this._super(...arguments);
+        saveLabel(model) {
+          if (isJournal(model)) {
+            return textFor(model).name;
+          }
+        },
+
+        saveIcon(model) {
+          if (isJournal(model)) {
+            return textFor(model).icon;
           }
         },
       });
 
-      api.modifyClass("component:composer-action-title", {
-        pluginId: PLUGIN_ID,
-
-        @discourseComputed("options", "action", "model.category")
-        actionTitle(opts, action, category) {
-          let key = getJournalComposerKey(action, this.model);
-          let text = getJournalComposerText(key);
-
-          if (category && category.journal && text) {
-            return i18n(text.name);
-          } else {
-            return this._super(...arguments);
+      // A journal composer can only ever switch to reply-to-post, so narrow the
+      // dropdown to that and relabel it. Core's own item is reused rather than
+      // fabricated, so selecting it still runs core's handler; staff toggles are
+      // left alone since they render separately.
+      api.registerValueTransformer(
+        "composer-actions-content",
+        ({ value, context: { topic, composerModel } }) => {
+          if (!topic?.journal) {
+            return value;
           }
-        },
-      });
 
-      api.modifyClass("component:composer-actions", {
-        pluginId: PLUGIN_ID,
+          const text = textFor(composerModel);
 
-        didReceiveAttrs() {
-          const composer = this.get("composerModel");
-          if (composer) {
-            this.set("postSnapshot", composer.post);
-          }
-          this._super(...arguments);
-        },
+          return value
+            .filter((item) => item.isToggle || item.id === "reply_to_post")
+            .map((item) => {
+              if (item.isToggle) {
+                return item;
+              }
 
-        commenting: alias("postSnapshot.journal"),
-        commentKey: computed("commenting", function () {
-          return getJournalComposerKey(this.action, this.composerModel);
-        }),
-
-        iconForComposerAction: computed("action", "commenting", function () {
-          if (this.commenting) {
-            return getJournalComposerText(this.commentKey).icon;
-          } else {
-            return this._super(...arguments);
-          }
-        }),
-
-        content: computed("seq", "commenting", function () {
-          if (this.commenting) {
-            const text = getJournalComposerText(this.commentKey);
-            return [
-              {
-                id: "reply_to_post",
+              return {
+                ...item,
                 icon: text.icon,
                 name: i18n(text.name),
                 description: i18n(text.description),
-              },
-            ];
-          } else {
-            return this._super(...arguments);
+              };
+            });
+        }
+      );
+
+      // Quoting inside a journal must reply to a post, never to the topic -
+      // a topic-level reply would be created as a new entry.
+      api.modifyClass(
+        "service:composer",
+        (Superclass) =>
+          class extends Superclass {
+            async open(opts) {
+              if (opts.topic?.journal && opts.quote && !opts.post) {
+                opts.post = opts.topic.postStream.posts[0];
+              }
+
+              return super.open(opts);
+            }
           }
-        }),
-      });
+      );
     });
   },
 };
