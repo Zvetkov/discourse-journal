@@ -31,13 +31,28 @@ nav.post-controls button.comment {
 }
 
 div.topic-post {
-  &.comment {
-    display: none;
-    border-left: 2px solid $primary-low;
+  // Collapsed comments must keep a real box rather than being `display: none`.
+  //
+  // The post stream cloaks off-screen posts by swapping them for a placeholder
+  // whose height is measured from the live element. A `display: none` post
+  // generates no box, so it never intersects the viewport and gets cloaked —
+  // but its zero-height placeholder *is* a box and does intersect, which
+  // uncloaks it again. The two states then oscillate indefinitely, which reads
+  // as the post trembling in place.
+  //
+  // Keeping a zero-height box makes both states measure the same, so whichever
+  // way the browser resolves a zero-area intersection, the result is stable.
+  &.comment:not(.show) {
+    visibility: hidden;
+    height: 0;
+    min-height: 0;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+  }
 
-    &.show {
-      display: block;
-    }
+  &.comment {
+    border-left: 2px solid $primary-low;
 
     .avatar-flair {
       width: 12px;
