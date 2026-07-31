@@ -94,8 +94,11 @@ div.topic-post {
         }
       }
 
-      .who-liked,
-      .who-read {
+      // Only style the populated list. Core renders the container
+      // unconditionally and adds `--expanded` when it has users in it, so
+      // decorating the bare element leaves an empty floating box on every
+      // comment. (Under the old widget system it was only attached when used.)
+      .who-read.--expanded {
         position: absolute;
         background-color: $secondary;
         box-shadow: shadow("dropdown");
