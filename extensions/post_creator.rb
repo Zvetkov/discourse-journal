@@ -26,9 +26,19 @@ module DiscourseJournal
       # early-exit, so without this the gate would block Topic#add_moderator_post
       # (close, pin, split notices) for anyone outside the author groups.
       return false if skip_validations?
-      return false if @opts[:post_type].present? && @opts[:post_type] != Post.types[:regular]
+      return false if @opts[:post_type].present? && @opts[:post_type].to_i != Post.types[:regular]
 
-      @opts[:reply_to_post_number].blank?
+      !journal_comment_parent_exists?
+    end
+
+    # Core keeps a reply_to_post_number that resolves to nothing, and such a post
+    # would land outside journal_post_map. Only a reply to a real post in this
+    # topic counts as a comment; anything else is gated as an entry.
+    def journal_comment_parent_exists?
+      number = @opts[:reply_to_post_number]
+      return false if number.blank?
+
+      Post.with_deleted.where(topic_id: @topic.id, post_number: number).exists?
     end
   end
 end

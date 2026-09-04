@@ -1,63 +1,75 @@
 ru:
   js:
     category:
-      journal_settings_label: "Journal"
-      enable_journal: "Enable journaling in this category"
+      journal_settings_label: "Журнал"
+      enable_journal: "Включить режим журнала в этом разделе"
       update_sort_order:
-        label: "Update post sort order"
-        description: "If journaling is enabled topics will be ordered as a journal. If journaling is disabled topics will be ordered normally."
-        button: "Update"
-      journal_authors: "Journal authors"
-      add_journal_authors: "Select author groups"
+        label: "Обновить порядок сообщений"
+        description: "Если режим журнала включён, сообщения в темах будут упорядочены как в журнале. Если выключен - в обычном порядке."
+        button: "Обновить"
+      journal_authors: "Авторы журнала"
+      add_journal_authors: "Выберите группы авторов"
+
     composer:
       composer_actions:
         create_journal:
-          name: Create Journal
-          description: Create a new journal
+          name: "Создать журнал"
+          description: "Создать новый журнал"
         create_entry:
-          name: Create Entry
-          description: Create a new entry in a journal
+          name: "Создать запись"
+          description: "Создать новую запись в журнале"
         edit_entry:
-          name: Edit Entry
-          description: Edit a journal entry
+          name: "Редактировать запись"
+          description: "Редактировать запись журнала"
         create_comment:
-          name: Comment
-          description: Comment on a journal entry
+          name: "Комментировать"
+          description: "Оставить комментарий к записи журнала"
         edit_comment:
-          name: Edit Comment
-          description: Edit comment on a journal entry
+          name: "Редактировать комментарий"
+          description: "Редактировать комментарий к записи журнала"
         reply_to_comment:
-          name: Reply to Comment
-          description: Reply to comment on a journal entry
-    last_entry_lowercase: last entry
+          name: "Ответить на комментарий"
+          description: "Ответить на комментарий к записи журнала"
+
+    last_entry_lowercase: "последняя запись"
     entry_lowercase:
-      one: entry
-      few: entries
-      many: entries
-      other: entries
+      one: "запись"
+      few: "записи"
+      many: "записей"
+      other: "записи"
     comment_lowercase:
-      one: comment
-      few: comments
-      many: comments
-      other: comments
-    in_reply_to: In reply to
+      one: "комментарий"
+      few: "комментария"
+      many: "комментариев"
+      other: "комментария"
+    in_reply_to: "В ответ на"
+
     topic:
       create_journal:
-        label: "Create Journal"
+        label: "Создать журнал"
       entry:
-        title: "New Entry"
-        help: "begin composing a new entry"
-        jump_to: "Jump to entry %{entryNumber}"
+        title: "Новая запись"
+        help: "начать новую запись"
+        jump_to: "Перейти к записи %{entryNumber}"
       comment:
-        title: 'Comment'
-        help: 'begin composing a comment on this entry'
+        title: "Комментировать"
+        help: "написать комментарий к этой записи"
         show_comments:
-          all: 'show {{count}} comments'
-          more: 'show {{count}} more comments'
+          all:
+            one: "показать %{count} комментарий"
+            few: "показать %{count} комментария"
+            many: "показать %{count} комментариев"
+            other: "показать %{count} комментария"
+          more:
+            one: "показать ещё %{count} комментарий"
+            few: "показать ещё %{count} комментария"
+            many: "показать ещё %{count} комментариев"
+            other: "показать ещё %{count} комментария"
       comment_reply:
-        title: 'Reply'
-        help: 'reply to a comment'
+        title: "Ответить"
+        help: "ответить на комментарий"
+
       tip:
         journal:
-          title: "Journal"
-          details: "Only the topic author can post entries. All users can post comments."
+          title: "Журнал"
+          details: "Записи может публиковать только автор темы. Комментарии могут оставлять все пользователи."

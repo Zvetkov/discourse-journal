@@ -29,7 +29,8 @@ after_initialize do
 
   ::Guardian.prepend DiscourseJournal::GuardianExtension
   ::PostCreator.prepend DiscourseJournal::PostCreatorExtension
-  ::Topic.include DiscourseJournal::TopicExtension
+  # Prepended: Topic defines its own reload, which an included module can't override.
+  ::Topic.prepend DiscourseJournal::TopicExtension
   ::Topic.prepend DiscourseJournal::TopicNestedExtension if ::Topic.method_defined?(:nested_view?)
   ::CategoryCustomField.include DiscourseJournal::CategoryCustomFieldExtension
 
@@ -46,11 +47,18 @@ after_initialize do
 
   # topic can be nil outside a topic view, e.g. a post whose topic was deleted.
   add_to_class(:post, :journal?) { !!topic&.journal? }
-  add_to_class(:post, :entry?) { journal? && topic.journal_post_map[id]&.second.blank? }
-  add_to_class(:post, :comment?) { journal? && topic.journal_post_map[id]&.second.present? }
-  add_to_class(:post, :entry_post_id) { entry? ? id : topic.journal_post_map[id]&.second }
-  add_to_class(:post, :comment_position) { journal? ? topic.journal_post_map[id]&.third : nil }
-  add_to_class(:post, :entry_comment_count) { journal? ? topic.journal_post_map[id]&.fourth : nil }
+  add_to_class(:post, :journal_map_entry) { topic.journal_post_map[id] if journal? }
+  # A post absent from the map (e.g. a dangling reply number) is neither an
+  # entry nor a comment. Small actions, moderator posts and whispers hold a
+  # slot for sort order but are topic chrome, not entries.
+  add_to_class(:post, :entry?) {
+    journal_map_entry.present? && journal_map_entry.second.blank? &&
+      post_type == Post.types[:regular]
+  }
+  add_to_class(:post, :comment?) { journal_map_entry.present? && journal_map_entry.second.present? }
+  add_to_class(:post, :entry_post_id) { entry? ? id : journal_map_entry&.second }
+  add_to_class(:post, :comment_position) { journal_map_entry&.third }
+  add_to_class(:post, :entry_comment_count) { journal_map_entry&.fourth }
 
   # CategoryList reads Site.preloaded_category_custom_fields directly now.
   %w(journal journal_author_groups).each do |field|
@@ -124,7 +132,10 @@ after_initialize do
     :topic_view,
     :can_create_entry,
     include_condition: -> { SiteSetting.journal_enabled && object.topic.journal? }
-  ) { scope&.user && scope.can_create_entry_on_topic?(object.topic) }
+  ) {
+    scope&.user.present? && scope.can_create_entry_on_topic?(object.topic) &&
+      scope.can_create_post_on_topic?(object.topic)
+  }
 
   add_to_serializer(:topic_list_item, :journal) { object.journal? }
   add_to_serializer(
@@ -132,6 +143,15 @@ after_initialize do
     :entry_count,
     include_condition: -> { SiteSetting.journal_enabled && object.journal? }
   ) { object.entry_count }
+
+  # TopicView loads posts without their topic association, so each post would
+  # lazily load its own Topic instance and rebuild journal_post_map from
+  # scratch. Share the view's topic so the map is computed once per request.
+  TopicView.on_preload do |topic_view|
+    if topic_view.topic.journal?
+      topic_view.posts.each { |post| post.topic = topic_view.topic }
+    end
+  end
 
   on(:post_created) do |post, opts, user|
     post.topic.journal_update_sort_order if post.topic&.journal?

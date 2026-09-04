@@ -9,9 +9,11 @@
   }
 
   // Hides core's reply button only. The plugin's Entry button is rendered into
-  // the after-topic-footer-main-buttons outlet, so it is nested in a <span>
-  // rather than being a direct child.
-  .topic-footer-main-buttons > button.create {
+  // the after-topic-footer-main-buttons outlet as a sibling of core's button:
+  // modern .gjs connectors ignore the outlet's @connectorTagName, so there is
+  // no wrapper <span> to keep it out of this selector. It shares the `create`
+  // class for styling, hence the `.entry` exclusion.
+  .topic-footer-main-buttons > button.create:not(.entry) {
     display: none;
   }
 

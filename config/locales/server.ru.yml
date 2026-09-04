@@ -1,6 +1,9 @@
 ru:
   site_settings:
-    journal_enabled: "Enable journal plugin."
-    journal_show_topic_tip: "Show a tip about journals under journal topic titles."
-    journal_comments_default: "Maximum number of comments to display on journal entries by default."
-    journal_entries_timeline: "Enable journal entries timeline."
+    journal_enabled: "Включить плагин журналов."
+    journal_show_topic_tip: "Показывать подсказку о журналах под заголовками тем-журналов."
+    journal_comments_default: "Сколько первых комментариев показывать под свёрнутой записью журнала. Остальные скрыты за кнопкой «показать ещё»."
+    journal_comments_tail: "Сколько последних комментариев также оставлять видимыми под свёрнутой записью журнала, после кнопки «показать ещё». Если 0 - не показывать."
+  journal:
+    errors:
+      cannot_create_entry: "Вам не разрешено создавать записи в этом журнале."

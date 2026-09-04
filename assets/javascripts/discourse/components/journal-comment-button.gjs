@@ -11,6 +11,7 @@ export default class JournalCommentButton extends Component {
   }
 
   @service composer;
+  @service journal;
   @service site;
 
   get post() {
@@ -45,6 +46,11 @@ export default class JournalCommentButton extends Component {
   @action
   openCommentCompose() {
     const topic = this.post.topic;
+
+    // The composer:opened hook in journal-post only fires when the composer
+    // actually opens; switching an open composer to another entry doesn't
+    // trigger it, and the new comment would commit into a collapsed run.
+    this.journal.expand(this.post.entry_post_id);
 
     this.composer.open({
       action: Composer.REPLY,

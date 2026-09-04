@@ -2,10 +2,9 @@
 
 module DiscourseJournal
   module GuardianExtension
-    def can_create_post_on_topic?(topic)
-      can_create_entry_on_topic?(topic) || super
-    end
-
+    # Only the category-permission check is relaxed for authors. Core's
+    # can_create_post_on_topic? keeps its closed/archived/trashed checks and
+    # delegates here, so authors can't post into a closed journal.
     def can_create_post?(parent)
       can_create_entry_on_topic?(parent) || super
     end
@@ -15,10 +14,6 @@ module DiscourseJournal
       return false if !authenticated?
 
       user_in_author_groups(topic) || user_created_topic(topic)
-    end
-
-    def post_is_journal_entry?(post)
-      post && post.reply_to_post_number.blank?
     end
 
     def user_created_topic(topic)

@@ -74,11 +74,11 @@ class ShowCommentsLink extends Component {
   }
 
   get label() {
-    const type = this.journal.defaultCount > 0 ? "more" : "all";
+    const count = this.journal.hiddenCount(this.post);
+    // "show N comments" only when nothing else from the run is visible.
+    const type = count === this.post.entry_comment_count ? "all" : "more";
 
-    return i18n(`topic.comment.show_comments.${type}`, {
-      count: this.journal.hiddenCount(this.post),
-    });
+    return i18n(`topic.comment.show_comments.${type}`, { count });
   }
 
   @action
@@ -157,7 +157,8 @@ export default {
               : [...value, "comment"];
           }
 
-          return [...value, "entry"];
+          // Small actions and whispers are neither; leave them alone.
+          return post.entry ? [...value, "entry"] : value;
         }
       );
 

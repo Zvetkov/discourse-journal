@@ -2,6 +2,21 @@ import { withPluginApi } from "discourse/lib/plugin-api";
 import { CREATE_TOPIC, EDIT, REPLY } from "discourse/models/composer";
 import { i18n } from "discourse-i18n";
 
+// Set for the duration of a reply action so the composer service override can
+// tell "reply to post 1" apart from "new entry" - core hands both over as a
+// topic-level reply with no post.
+let journalReplyTarget = null;
+
+async function withJournalReplyTarget(post, fn) {
+  journalReplyTarget = post;
+
+  try {
+    return await fn();
+  } finally {
+    journalReplyTarget = null;
+  }
+}
+
 function isJournal(composerModel) {
   return !!(composerModel?.category?.journal || composerModel?.topic?.journal);
 }
@@ -111,15 +126,48 @@ export default {
         }
       );
 
-      // Quoting inside a journal must reply to a post, never to the topic -
-      // a topic-level reply would be created as a new entry.
+      // Core folds a reply to the first post into a topic-level reply, which in
+      // a journal is a new entry rather than a comment on the first one. The
+      // controller overrides record the post the user actually targeted and the
+      // composer service puts it back. New Entry passes no post, so it stays a
+      // topic-level reply even with a pending quote.
+      api.modifyClass(
+        "controller:topic",
+        (Superclass) =>
+          class extends Superclass {
+            async replyToPost(post) {
+              if (!post || !this.model?.journal) {
+                return super.replyToPost(post);
+              }
+
+              return withJournalReplyTarget(post, () =>
+                super.replyToPost(post)
+              );
+            }
+
+            async selectText() {
+              if (!this.model?.journal) {
+                return super.selectText();
+              }
+
+              const postStream = this.model.postStream;
+              const { postId } = this.quoteState;
+              const post =
+                postStream.findLoadedPost(postId) ??
+                (await postStream.loadPost(postId));
+
+              return withJournalReplyTarget(post, () => super.selectText());
+            }
+          }
+      );
+
       api.modifyClass(
         "service:composer",
         (Superclass) =>
           class extends Superclass {
             async open(opts) {
-              if (opts.topic?.journal && opts.quote && !opts.post) {
-                opts.post = opts.topic.postStream.posts[0];
+              if (opts.topic?.journal && !opts.post && journalReplyTarget) {
+                opts.post = journalReplyTarget;
               }
 
               return super.open(opts);

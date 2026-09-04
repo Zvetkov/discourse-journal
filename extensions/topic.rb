@@ -2,7 +2,7 @@
 
 module DiscourseJournal
   module TopicExtension
-    def self.included(base)
+    def self.prepended(base)
       base.extend(ClassMethods)
     end
 
@@ -15,19 +15,18 @@ module DiscourseJournal
     end
 
     def entries
-      @entries ||= begin
-        posts
-          .where(reply_to_post_number: nil)
-          .order('created_at ASC')
-      end
+      @entries ||= regular_posts.where(reply_to_post_number: nil).order('created_at ASC')
     end
 
     def comments
-      @comments ||= begin
-        posts
-          .where.not(reply_to_post_number: nil)
-          .order('created_at ASC')
-      end
+      @comments ||= regular_posts.where.not(reply_to_post_number: nil).order('created_at ASC')
+    end
+
+    # Small actions, moderator posts and whispers are topic chrome. They are
+    # not entries or counted comments, and non-staff never receive whispers, so
+    # numbering them would leave gaps in what those readers see.
+    def regular_posts
+      posts.where(post_type: Post.types[:regular])
     end
 
     def entry_count
@@ -63,8 +62,9 @@ module DiscourseJournal
     # values to null when refreshing a post, so a 0 would silently disappear on
     # the next message-bus update.
     #
-    # Deleted posts keep their sort_order slot (staff can see them) but are
-    # skipped when numbering comments, so they don't eat a visible slot.
+    # Deleted and non-regular posts keep their sort_order slot (staff can see
+    # them) but are skipped when numbering comments, so they don't eat a slot
+    # that other readers can't see.
     #
     # Only append to the tuple - journal_update_sort_order reads .first and
     # Post#entry_post_id reads .second.
@@ -73,22 +73,19 @@ module DiscourseJournal
         map = {}
         post_number = 1
 
-        entries.with_deleted.each do |entry|
+        top_level = posts.with_deleted.where(reply_to_post_number: nil).order('created_at ASC')
+
+        top_level.each do |entry|
           replies = self.class.gather_replies(entry).sort_by(&:created_at)
-          comment_count = replies.count { |reply| reply.deleted_at.nil? }
+          comment_count = replies.count { |reply| counted_comment?(reply) }
           position = 0
 
           map[entry.id] = [post_number, nil, nil, comment_count]
 
           replies.each do |reply|
             post_number += 1
-
-            if reply.deleted_at.nil?
-              position += 1
-              map[reply.id] = [post_number, entry.id, position, comment_count]
-            else
-              map[reply.id] = [post_number, entry.id, nil, comment_count]
-            end
+            position += 1 if counted_comment?(reply)
+            map[reply.id] = [post_number, entry.id, (counted_comment?(reply) ? position : nil), comment_count]
           end
 
           post_number += 1
@@ -96,6 +93,10 @@ module DiscourseJournal
 
         map
       end
+    end
+
+    def counted_comment?(post)
+      !post.trashed? && post.post_type == Post.types[:regular]
     end
 
     def journal_update_sort_order

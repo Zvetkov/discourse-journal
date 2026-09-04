@@ -16,9 +16,14 @@ export default class JournalService extends Service {
   // Replaced by value on each mutation so consumers re-render.
   @tracked expandedEntries = new Set();
 
-  /** Comments shown per entry before collapsing. */
+  /** Leading comments shown per entry before collapsing. */
   get defaultCount() {
     return Number(this.siteSettings.journal_comments_default);
+  }
+
+  /** Trailing (most recent) comments kept visible on a collapsed entry. */
+  get tailCount() {
+    return Number(this.siteSettings.journal_comments_tail);
   }
 
   expand(entryPostId) {
@@ -47,7 +52,17 @@ export default class JournalService extends Service {
       return true;
     }
 
-    return post.comment_position <= this.defaultCount || this.isExpanded(post);
+    if (this.isExpanded(post)) {
+      return true;
+    }
+
+    // A collapsed run shows its first `defaultCount` and last `tailCount`
+    // comments; both are numbered from the entry's non-deleted comments, as is
+    // entry_comment_count, so the tail boundary is a plain subtraction.
+    return (
+      post.comment_position <= this.defaultCount ||
+      post.comment_position > post.entry_comment_count - this.tailCount
+    );
   }
 
   isFiltered(post) {
@@ -61,7 +76,10 @@ export default class JournalService extends Service {
   }
 
   hiddenCount(post) {
-    return Math.max(0, (post.entry_comment_count ?? 0) - this.defaultCount);
+    return Math.max(
+      0,
+      (post.entry_comment_count ?? 0) - this.defaultCount - this.tailCount
+    );
   }
 
   /** Whether the "show N more comments" toggle renders after this post. */
@@ -75,8 +93,9 @@ export default class JournalService extends Service {
     }
 
     // The toggle must hang off a *visible* post - it renders inside the post
-    // wrapper, which is display:none for collapsed comments. That's the last
-    // visible comment, or the entry itself when nothing is shown by default.
+    // wrapper, which is collapsed to nothing for hidden comments. That's the
+    // last leading comment, or the entry itself when no leading comments are
+    // shown, so the toggle sits between the leading and trailing comments.
     if (this.defaultCount > 0) {
       return !!post.comment && post.comment_position === this.defaultCount;
     }

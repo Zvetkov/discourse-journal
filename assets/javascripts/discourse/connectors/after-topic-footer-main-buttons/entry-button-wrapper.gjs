@@ -13,7 +13,8 @@ export default class EntryButtonWrapper extends Component {
 
   @action
   createEntry() {
-    getOwner(this).lookup("controller:topic").send("replyToPost");
+    // No post argument: a reply to the topic itself is a new entry.
+    getOwner(this).lookup("controller:topic").replyToPost();
   }
 
   <template>
