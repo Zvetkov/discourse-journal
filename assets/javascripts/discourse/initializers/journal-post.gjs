@@ -4,6 +4,7 @@ import { action } from "@ember/object";
 import { service } from "@ember/service";
 import { removeValueFromArray } from "discourse/lib/array-tools";
 import { withPluginApi } from "discourse/lib/plugin-api";
+import PostStream from "discourse/models/post-stream";
 import dConcatClass from "discourse/ui-kit/helpers/d-concat-class";
 import { i18n } from "discourse-i18n";
 import JournalCommentButton from "../components/journal-comment-button";
@@ -31,11 +32,11 @@ function commentInsertIndex(posts, post) {
 
 // Mirror a comment's placement in `posts` into the id stream, so scroll position
 // and post navigation agree with what is rendered.
-//
-// A module function, not a #private method: classPrepend swaps the prototype
-// chain, so instances are never constructed by the subclass and private members
-// would fail their brand check.
 function repositionCommentInStream(postStream, post) {
+  if (!postStream.topic?.journal || !post.reply_to_post_number) {
+    return;
+  }
+
   const { stream, posts } = postStream;
   const postId = post.id;
 
@@ -190,86 +191,45 @@ export default {
       // of the topic. The server reorders sort_order on post_created, so this
       // only covers the window before the stream reloads.
       //
-      // Function form of modifyClass: real `super`, and not subject to the
-      // pluginId de-duplication that silently drops a second object-form
-      // modification of the same class.
-      api.modifyClass(
-        "model:post-stream",
-        (Superclass) =>
-          class extends Superclass {
-            get journal() {
-              return this.topic?.journal;
-            }
+      // addModelMethod shadows the core method on the prototype without
+      // exposing `super`, so the originals are captured up front and called
+      // explicitly. Only appendPost changes placement; stagePost and commitPost
+      // go through it and then push the id onto the stream, which is mirrored
+      // afterwards.
+      const { stagePost, commitPost, appendPost } = PostStream.prototype;
 
-            stagePost(post, user) {
-              const result = super.stagePost(post, user);
+      api.addModelMethod("post-stream", "appendPost", function (post) {
+        const lengthBefore = this.posts.length;
+        const result = appendPost.call(this, post);
 
-              if (this.journal && post.reply_to_post_number) {
-                repositionCommentInStream(this, post);
-              }
+        if (
+          this.topic?.journal &&
+          post.reply_to_post_number &&
+          this.posts.length > lengthBefore
+        ) {
+          // Core pushed the stored post to the end; move it in front of the
+          // entry that follows its parent, when that entry is loaded.
+          const index = commentInsertIndex(this.posts, post);
 
-              return result;
-            }
-
-            commitPost(post) {
-              const result = super.commitPost(post);
-
-              if (this.journal && post.reply_to_post_number) {
-                repositionCommentInStream(this, post);
-              }
-
-              return result;
-            }
-
-            prependPost(post) {
-              // The first post is always the first entry, so anything prepended
-              // above it belongs in second place.
-              if (
-                !this.journal ||
-                post.post_number !== 2 ||
-                this.posts[0]?.post_number !== 1
-              ) {
-                return super.prependPost(post);
-              }
-
-              this._initUserModels(post);
-              const stored = this.storePost(post);
-
-              if (stored && !this.posts.includes(stored)) {
-                this.posts.splice(1, 0, stored);
-              }
-
-              return post;
-            }
-
-            appendPost(post) {
-              if (!this.journal || !post.reply_to_post_number) {
-                return super.appendPost(post);
-              }
-
-              this._initUserModels(post);
-              const stored = this.storePost(post);
-
-              if (stored) {
-                if (!this.posts.includes(stored)) {
-                  const index = commentInsertIndex(this.posts, post);
-
-                  if (index > 0) {
-                    this.posts.splice(index, 0, stored);
-                  } else {
-                    this.posts.push(stored);
-                  }
-                }
-
-                if (stored.id !== -1) {
-                  this.lastAppended = stored;
-                }
-              }
-
-              return post;
-            }
+          if (index !== -1) {
+            this.posts.splice(index, 0, this.posts.pop());
           }
-      );
+        }
+
+        return result;
+      });
+
+      api.addModelMethod("post-stream", "stagePost", function (post, user) {
+        const result = stagePost.call(this, post, user);
+        repositionCommentInStream(this, post);
+        return result;
+      });
+
+      api.addModelMethod("post-stream", "commitPost", function (post) {
+        const result = commitPost.call(this, post);
+        repositionCommentInStream(this, post);
+        return result;
+      });
     });
   },
 };

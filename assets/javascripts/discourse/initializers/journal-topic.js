@@ -1,5 +1,6 @@
 import { getOwner } from "@ember/owner";
 import { withPluginApi } from "discourse/lib/plugin-api";
+import Topic from "discourse/models/topic";
 
 // One topic route is active at a time, so a module-level flag is enough to keep
 // pause/unpause balanced across topic-to-topic transitions.
@@ -62,24 +63,23 @@ export default {
           }
       );
 
-      api.modifyClass(
-        "model:topic",
-        (Superclass) =>
-          class extends Superclass {
-            get showJournalTip() {
-              return this.journal && siteSettings.journal_show_topic_tip;
-            }
+      // Jump to the latest entry rather than the latest post. addModelGetter
+      // shadows core's getter on the prototype without exposing `super`, so
+      // core's implementation is captured up front for the fallback.
+      const coreLastPostUrl = Object.getOwnPropertyDescriptor(
+        Topic.prototype,
+        "lastPostUrl"
+      )?.get;
 
-            // Jump to the latest entry rather than the latest post.
-            get lastPostUrl() {
-              if (this.journal && this.last_entry_post_number) {
-                return this.urlForPostNumber(this.last_entry_post_number);
-              }
+      api.addModelGetter("topic", "lastPostUrl", function () {
+        if (this.journal && this.last_entry_post_number) {
+          return this.urlForPostNumber(this.last_entry_post_number);
+        }
 
-              return super.lastPostUrl;
-            }
-          }
-      );
+        return coreLastPostUrl
+          ? coreLastPostUrl.call(this)
+          : this.urlForPostNumber(this.highest_post_number);
+      });
 
       // In a journal the reading position is driven by entries, so the
       // "back to last read" jump is meaningless.
