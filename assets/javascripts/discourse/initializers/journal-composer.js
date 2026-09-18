@@ -1,3 +1,4 @@
+import { action } from "@ember/object";
 import { withPluginApi } from "discourse/lib/plugin-api";
 import { CREATE_TOPIC, EDIT, REPLY } from "discourse/models/composer";
 import { i18n } from "discourse-i18n";
@@ -135,7 +136,8 @@ export default {
         "controller:topic",
         (Superclass) =>
           class extends Superclass {
-            async replyToPost(post) {
+            @action
+            replyToPost = async (post) => {
               if (!post || !this.model?.journal) {
                 return super.replyToPost(post);
               }
@@ -143,9 +145,10 @@ export default {
               return withJournalReplyTarget(post, () =>
                 super.replyToPost(post)
               );
-            }
+            };
 
-            async selectText() {
+            @action
+            selectText = async () => {
               if (!this.model?.journal) {
                 return super.selectText();
               }
@@ -157,7 +160,7 @@ export default {
                 (await postStream.loadPost(postId));
 
               return withJournalReplyTarget(post, () => super.selectText());
-            }
+            };
           }
       );
 
