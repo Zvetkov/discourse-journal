@@ -136,8 +136,14 @@ export default {
         "controller:topic",
         (Superclass) =>
           class extends Superclass {
+            constructor() {
+              super(...arguments);
+              this.replyToPost = this.replyToPost.bind(this);
+              this.selectText = this.selectText.bind(this);
+            }
+
             @action
-            replyToPost = async (post) => {
+            async replyToPost(post) {
               if (!post || !this.model?.journal) {
                 return super.replyToPost(post);
               }
@@ -145,10 +151,10 @@ export default {
               return withJournalReplyTarget(post, () =>
                 super.replyToPost(post)
               );
-            };
+            }
 
             @action
-            selectText = async () => {
+            async selectText() {
               if (!this.model?.journal) {
                 return super.selectText();
               }
@@ -160,7 +166,7 @@ export default {
                 (await postStream.loadPost(postId));
 
               return withJournalReplyTarget(post, () => super.selectText());
-            };
+            }
           }
       );
 
